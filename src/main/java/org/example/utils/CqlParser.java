@@ -6,7 +6,6 @@ import com.datastax.oss.driver.api.core.cql.Row;
 import com.datastax.oss.driver.api.core.metadata.schema.ColumnMetadata;
 import com.datastax.oss.driver.api.querybuilder.QueryBuilder;
 import com.datastax.oss.driver.api.querybuilder.select.Select;
-import com.datastax.oss.driver.api.querybuilder.term.Term;
 import org.example.common.CqlInfo;
 import org.example.common.CqlType;
 
@@ -36,19 +35,24 @@ public class CqlParser {
                 location = session.getKeyspace().get().asInternal() + "." + location;
             }
             String[] keyspaceAndTable = location.split("\\.");
+            cqlInfo.setKeyspace(keyspaceAndTable[0]);
+            cqlInfo.setTable(keyspaceAndTable[1]);
+            // 解析要查询的列
+            cqlInfo.setSelectColumns(selectMatcher.group(1));
             // 查询主键所在属性
             List<ColumnMetadata> primaryColumns = session.getMetadata().getKeyspace(keyspaceAndTable[0]).get().getTable(keyspaceAndTable[1]).get().getPrimaryKey();
+            cqlInfo.setPrimaryColumns(primaryColumns);
             // 获取查询数据的对应主键值
-            StringBuilder primaryValue = new StringBuilder(primaryColumns.get(0).getName().asInternal());
+            StringBuilder primaryColumnsName = new StringBuilder(primaryColumns.get(0).getName().asInternal());
             for (int i = 1; i < primaryColumns.size(); i++) {
-                primaryValue.append(",").append(primaryColumns.get(i).getName().asInternal());
+                primaryColumnsName.append(",").append(primaryColumns.get(i).getName().asInternal());
             }
-            String selectPrimaryCql = cql.replaceFirst("*".equals(selectMatcher.group(1)) ? "\\*" : selectMatcher.group(1), primaryValue.toString());
-            ResultSet primaryKeys = session.execute(selectPrimaryCql);
-            // 组装查询数据的key = keyspace.table.primaryKey
-            Set<Term> keys = new HashSet<>();
-            for (Row row : primaryKeys) {
-                keys.add(QueryBuilder.literal(location + "." + row.getFormattedContents()));
+            String selectPrimaryKVs = cql.replaceFirst("*".equals(selectMatcher.group(1)) ? "\\*" : selectMatcher.group(1), primaryColumnsName.toString());
+            ResultSet primaryKVs = session.execute(selectPrimaryKVs);
+            // 组装查询数据的key = keyspace.table.primaryKV，设置cqlInfo主键值
+            Map<String, Row> keys = new HashMap<>();
+            for (Row row : primaryKVs) {
+                keys.put(location + "." + row.getFormattedContents(), row);
             }
             cqlInfo.setKeys(keys);
         } else if (insertMatcher.matches()) {
@@ -59,6 +63,8 @@ public class CqlParser {
                 location = session.getKeyspace().get().asInternal() + "." + location;
             }
             String[] keyspaceAndTable = location.split("\\.");
+            cqlInfo.setKeyspace(keyspaceAndTable[0]);
+            cqlInfo.setTable(keyspaceAndTable[1]);
             // 查询主键所在属性
             List<ColumnMetadata> primaryColumns = session.getMetadata().getKeyspace(keyspaceAndTable[0]).get().getTable(keyspaceAndTable[1]).get().getPrimaryKey();
             // 获取插入数据的对应主键值
@@ -79,8 +85,8 @@ public class CqlParser {
             }
             primaryValue.append("]");
             // 组装插入数据的key = keyspace.table.primaryKey
-            Set<Term> keys = new HashSet<>();
-            keys.add(QueryBuilder.literal(primaryValue.toString()));
+            Map<String, Row> keys = new HashMap<>();
+            keys.put(primaryValue.toString(), null);
             cqlInfo.setKeys(keys);
         } else if (updateMatcher.matches()) {
             cqlInfo.setType(CqlType.UPDATE);
@@ -90,6 +96,8 @@ public class CqlParser {
                 location = session.getKeyspace().get().asInternal() + "." + location;
             }
             String[] keyspaceAndTable = location.split("\\.");
+            cqlInfo.setKeyspace(keyspaceAndTable[0]);
+            cqlInfo.setTable(keyspaceAndTable[1]);
             // 查询主键所在属性
             List<ColumnMetadata> primaryColumns = session.getMetadata().getKeyspace(keyspaceAndTable[0]).get().getTable(keyspaceAndTable[1]).get().getPrimaryKey();
             // 获取更新数据的对应主键值
@@ -100,9 +108,9 @@ public class CqlParser {
             Select selectPrimary = QueryBuilder.selectFrom(keyspaceAndTable[0], keyspaceAndTable[1]).raw(primaryValue.toString()).whereRaw(updateMatcher.group(2));
             ResultSet primaryKeys = session.execute(selectPrimary.build());
             // 组装查询数据的key = keyspace.table.primaryKey
-            Set<Term> keys = new HashSet<>();
+            Map<String, Row> keys = new HashMap<>();
             for (Row row : primaryKeys) {
-                keys.add(QueryBuilder.literal(location + "." + row.getFormattedContents()));
+                keys.put(location + "." + row.getFormattedContents(), row);
             }
             cqlInfo.setKeys(keys);
         } else if (deleteMatcher.matches()) {
@@ -117,6 +125,8 @@ public class CqlParser {
                 location = session.getKeyspace().get().asInternal() + "." + location;
             }
             String[] keyspaceAndTable = location.split("\\.");
+            cqlInfo.setKeyspace(keyspaceAndTable[0]);
+            cqlInfo.setTable(keyspaceAndTable[1]);
             // 查询主键所在属性
             List<ColumnMetadata> primaryColumns = session.getMetadata().getKeyspace(keyspaceAndTable[0]).get().getTable(keyspaceAndTable[1]).get().getPrimaryKey();
             // 获取更新数据的对应主键值
@@ -127,9 +137,9 @@ public class CqlParser {
             Select selectPrimary = QueryBuilder.selectFrom(keyspaceAndTable[0], keyspaceAndTable[1]).raw(primaryValue.toString()).whereRaw(deleteMatcher.group(3));
             ResultSet primaryKeys = session.execute(selectPrimary.build());
             // 组装查询数据的key = keyspace.table.primaryKey
-            Set<Term> keys = new HashSet<>();
+            Map<String, Row> keys = new HashMap<>();
             for (Row row : primaryKeys) {
-                keys.add(QueryBuilder.literal(location + "." + row.getFormattedContents()));
+                keys.put(location + "." + row.getFormattedContents(), row);
             }
             cqlInfo.setKeys(keys);
         }
