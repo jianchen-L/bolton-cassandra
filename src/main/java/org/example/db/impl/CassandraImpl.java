@@ -7,6 +7,7 @@ import com.datastax.oss.driver.api.core.cql.ResultSet;
 import com.datastax.oss.driver.api.core.cql.Row;
 import com.datastax.oss.driver.api.core.metadata.schema.ColumnMetadata;
 import com.datastax.oss.driver.api.core.type.DataTypes;
+import com.datastax.oss.driver.api.core.type.codec.TypeCodec;
 import com.datastax.oss.driver.api.querybuilder.QueryBuilder;
 import com.datastax.oss.driver.api.querybuilder.SchemaBuilder;
 import com.datastax.oss.driver.api.querybuilder.insert.Insert;
@@ -40,9 +41,9 @@ public class CassandraImpl implements DBStrategy {
                 .value("key", QueryBuilder.bindMarker())
                 .value("lock_ts", QueryBuilder.bindMarker())
                 .value("tid", QueryBuilder.bindMarker());
-//        session.execute(ramp.build());
-//        session.execute(txnLock.build());
-//        session.execute(txnInfo.build());
+        session.execute(ramp.build());
+        session.execute(txnLock.build());
+        session.execute(txnInfo.build());
 //        txnLockWrite = session.prepare(txnLockWriteBuilder.build());
     }
 
@@ -51,10 +52,10 @@ public class CassandraImpl implements DBStrategy {
         session.execute(txnLockWrite.bind(key, timestamp, tid));
     }
 
-    public ResultSet read(CqlInfo cqlInfo) {
-        // TODO:关联读取结果的key和值
+    public Collection<String> read(CqlInfo cqlInfo) {
+        // 关联读取结果的key和值
         Set<Term> keysCast = new HashSet<>();
-        Map<String, Row> result = new HashMap<>();
+        Map<String, String> result = new HashMap<>();
         Select selectResult = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), cqlInfo.getTable()).raw(cqlInfo.getSelectColumns());
         for (ColumnMetadata primaryColumn : cqlInfo.getPrimaryColumns()) {
             selectResult = selectResult.whereColumn(primaryColumn.getName()).isEqualTo(QueryBuilder.bindMarker());
@@ -62,32 +63,38 @@ public class CassandraImpl implements DBStrategy {
         PreparedStatement preparedSelectResult = session.prepare(selectResult.build());
         for (Map.Entry<String, Row> key : cqlInfo.getKeys().entrySet()) {
             keysCast.add(QueryBuilder.literal(key.getKey()));
-            Row keyRow = key.getValue();
             BoundStatementBuilder boundStatementBuilder = preparedSelectResult.boundStatementBuilder();
+            Row keyRow = key.getValue();
             for (int i = 0; i < keyRow.size(); i++) {
-                boundStatementBuilder.set(i, keyRow.get(i), keyRow.)
+                TypeCodec<Object> codec = boundStatementBuilder.codecRegistry().codecFor(keyRow.getType(i));
+                boundStatementBuilder.set(i, keyRow.get(i, codec), codec);
             }
-            preparedSelectResult.boundStatementBuilder()
-            result.put(key, session.execute(preparedSelectResult.bind(primaryValues)).one());
+            result.put(key.getKey(), session.execute(boundStatementBuilder.build()).one().getFormattedContents());
         }
-
+        // 原子可见性检查
+        // 检查被事务更新过的数据项
         Select selectUpdatedByTxn = QueryBuilder.selectFrom("ramp", "txn_lock").all().whereColumn("key").in(keysCast);
         ResultSet updatedByTxn = session.execute(selectUpdatedByTxn.build());
         if (updatedByTxn.all().isEmpty()) {
-            return session.execute(cqlInfo.getRaw());
+            return result.values();
         } else {
+            Select selectTxnMetadata = QueryBuilder.selectFrom("ramp", "txn_info").all().whereColumn("tid").isEqualTo(QueryBuilder.bindMarker());
+            PreparedStatement preparedSelectTxnMetadata = session.prepare(selectTxnMetadata.build());
+            Select selectWriteSetLock = QueryBuilder.selectFrom("ramp", "txn_lock").column("key").whereColumn("key").in(QueryBuilder.bindMarker());
+            PreparedStatement preparedSelectWriteSetLock = session.prepare(selectWriteSetLock.build());
+            Select selectNeeded = QueryBuilder.selectFrom("ramp", "txn_lock").columns("key", "lock_ts").whereColumn("key").in(QueryBuilder.bindMarker());
+            PreparedStatement preparedSelectNeeded = session.prepare(selectNeeded.build());
             while (!session.isClosed()) {
-                Map<String, Instant> latest = new HashMap<>();
+                // 从事务元数据获取数据项的最新时间戳
+                Map<String, Instant> latest = new HashMap<>(updatedByTxn.all().size());
                 for (Row updatedByTxnRow : updatedByTxn) {
-                    Select selectTxnMetadata = QueryBuilder.selectFrom("ramp", "txn_info").all().whereColumn("tid").isEqualTo(QueryBuilder.literal(updatedByTxnRow.getLong("tid")));
-                    Row txnMetadata = session.execute(selectTxnMetadata.build()).one();
+                    Row txnMetadata = session.execute(preparedSelectTxnMetadata.bind(QueryBuilder.literal(updatedByTxnRow.getLong("tid")))).one();
                     Set<String> writeSet = txnMetadata.getSet("write_set", String.class);
                     Set<Term> writeSetCast = new HashSet<>();
                     for (String s : writeSet) {
                         writeSetCast.add(QueryBuilder.literal(s));
                     }
-                    Select selectWriteSetLock = QueryBuilder.selectFrom("ramp", "txn_lock").column("key").whereColumn("key").in(writeSetCast);
-                    ResultSet writeSetLock = session.execute(selectWriteSetLock.build());
+                    ResultSet writeSetLock = session.execute(preparedSelectWriteSetLock.bind(writeSetCast));
                     for (Row writeSetLockRow : writeSetLock) {
                         String key = writeSetLockRow.getString("key");
                         Instant ts = txnMetadata.getInstant("info_ts");
@@ -96,25 +103,56 @@ public class CassandraImpl implements DBStrategy {
                         }
                     }
                 }
-                Map<Term, Instant> needed = new HashMap<>();
+                // 获取需要等待复制的数据项
+                Map<String, Instant> needed = new HashMap<>(updatedByTxn.all().size());
                 for (Row updatedByTxnRow : updatedByTxn) {
                     String key = updatedByTxnRow.getString("key");
                     Instant latestOfKey = latest.get(key);
                     if (latestOfKey.isAfter(updatedByTxnRow.getInstant("lock_ts"))) {
-                        needed.put(QueryBuilder.literal(key), latestOfKey);
+                        needed.put(key, latestOfKey);
                     }
                 }
+                // 读取等待复制数据项的最新数据，如果读取到更晚的时间戳则循环读取丢失的数据项
                 Set<Term> newer = new HashSet<>();
+                // 维护一个int值来动态设置等待时间
+                int loopCount = 0;
                 while (!needed.isEmpty()) {
-                    Select selectNeeded = QueryBuilder.selectFrom("ramp", "txn_lock").columns("key", "lock_ts").whereColumn("key").in(needed.keySet());
-                    ResultSet neededResult = session.execute(selectNeeded.build());
-                    for (Row neededRow : neededResult) {
-                        Term key = QueryBuilder.literal(neededRow.getString("key"));
-                        Instant ts = neededRow.getInstant("lock_ts");
+                    if (loopCount++ > 0) {
+                        try {
+                            Thread.sleep(10L << loopCount);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
                     }
+                    ResultSet neededResult = session.execute(preparedSelectNeeded.bind(needed.keySet()));
+                    Map<String, Row> keys = cqlInfo.getKeys();
+                    for (Row neededRow : neededResult) {
+                        String key = neededRow.getString("key");
+                        Instant ts = neededRow.getInstant("lock_ts");
+                        int compare = latest.get(key).compareTo(ts);
+                        if (compare == 0) {
+                            needed.remove(key);
+                            BoundStatementBuilder boundStatementBuilder = preparedSelectResult.boundStatementBuilder();
+                            Row keyRow = keys.get(key);
+                            for (int i = 0; i < keyRow.size(); i++) {
+                                TypeCodec<Object> codec = boundStatementBuilder.codecRegistry().codecFor(keyRow.getType(i));
+                                boundStatementBuilder.set(i, keyRow.get(i, codec), codec);
+                            }
+                            result.put(key, session.execute(boundStatementBuilder.build()).one().getFormattedContents());
+                        } else if (compare < 0) {
+                            needed.remove(key);
+                            newer.add(QueryBuilder.literal(key));
+                        }
+                    }
+                }
+                if (newer.size() == 0) {
+                    break;
+                } else {
+                    selectUpdatedByTxn = QueryBuilder.selectFrom("ramp", "txn_lock").all().whereColumn("key").in(newer);
+                    updatedByTxn = session.execute(selectUpdatedByTxn.build());
                 }
             }
         }
-        return null;
+        return result.values();
     }
 }
