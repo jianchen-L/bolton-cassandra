@@ -9,6 +9,6 @@ class CassandraImplTest {
 
     @Test
     void read() {
-        cassandra.read(CqlParser.parse("select * from tutorialspoint.emp;"));
+        cassandra.read(CqlParser.parse("select emp_city from tutorialspoint.emp;"));
     }
 }

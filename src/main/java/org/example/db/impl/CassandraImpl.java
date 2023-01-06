@@ -31,11 +31,11 @@ public class CassandraImpl implements DBStrategy {
         CreateKeyspace ramp = SchemaBuilder.createKeyspace("ramp").ifNotExists().withSimpleStrategy(3);
         CreateTable txnLock = SchemaBuilder.createTable("ramp", "txn_lock").ifNotExists()
                 .withPartitionKey("key", DataTypes.TEXT)
-                .withClusteringColumn("lock_ts", DataTypes.TIMESTAMP)
+                .withColumn("lock_ts", DataTypes.TIMESTAMP)
                 .withColumn("tid", DataTypes.BIGINT);
         CreateTable txnInfo = SchemaBuilder.createTable("ramp", "txn_info").ifNotExists()
-                .withPartitionKey("tid", DataTypes.TEXT)
-                .withClusteringColumn("info_ts", DataTypes.TIMESTAMP)
+                .withPartitionKey("tid", DataTypes.BIGINT)
+                .withColumn("info_ts", DataTypes.TIMESTAMP)
                 .withColumn("write_set", DataTypes.setOf(DataTypes.TEXT));
         Insert txnLockWriteBuilder = QueryBuilder.insertInto("ramp", "txn_lock")
                 .value("key", QueryBuilder.bindMarker())
@@ -74,8 +74,8 @@ public class CassandraImpl implements DBStrategy {
         // 原子可见性检查
         // 检查被事务更新过的数据项
         Select selectUpdatedByTxn = QueryBuilder.selectFrom("ramp", "txn_lock").all().whereColumn("key").in(keysCast);
-        ResultSet updatedByTxn = session.execute(selectUpdatedByTxn.build());
-        if (updatedByTxn.all().isEmpty()) {
+        List<Row> updatedByTxnList = session.execute(selectUpdatedByTxn.build()).all();
+        if (updatedByTxnList.isEmpty()) {
             return result.values();
         } else {
             Select selectTxnMetadata = QueryBuilder.selectFrom("ramp", "txn_info").all().whereColumn("tid").isEqualTo(QueryBuilder.bindMarker());
@@ -86,14 +86,11 @@ public class CassandraImpl implements DBStrategy {
             PreparedStatement preparedSelectNeeded = session.prepare(selectNeeded.build());
             while (!session.isClosed()) {
                 // 从事务元数据获取数据项的最新时间戳
-                Map<String, Instant> latest = new HashMap<>(updatedByTxn.all().size());
-                for (Row updatedByTxnRow : updatedByTxn) {
-                    Row txnMetadata = session.execute(preparedSelectTxnMetadata.bind(QueryBuilder.literal(updatedByTxnRow.getLong("tid")))).one();
+                Map<String, Instant> latest = new HashMap<>(updatedByTxnList.size());
+                for (Row updatedByTxnRow : updatedByTxnList) {
+                    Row txnMetadata = session.execute(preparedSelectTxnMetadata.bind(updatedByTxnRow.getLong("tid"))).one();
                     Set<String> writeSet = txnMetadata.getSet("write_set", String.class);
-                    Set<Term> writeSetCast = new HashSet<>();
-                    for (String s : writeSet) {
-                        writeSetCast.add(QueryBuilder.literal(s));
-                    }
+                    List<String> writeSetCast = new LinkedList<>(writeSet);
                     ResultSet writeSetLock = session.execute(preparedSelectWriteSetLock.bind(writeSetCast));
                     for (Row writeSetLockRow : writeSetLock) {
                         String key = writeSetLockRow.getString("key");
@@ -104,8 +101,8 @@ public class CassandraImpl implements DBStrategy {
                     }
                 }
                 // 获取需要等待复制的数据项
-                Map<String, Instant> needed = new HashMap<>(updatedByTxn.all().size());
-                for (Row updatedByTxnRow : updatedByTxn) {
+                Map<String, Instant> needed = new HashMap<>(updatedByTxnList.size());
+                for (Row updatedByTxnRow : updatedByTxnList) {
                     String key = updatedByTxnRow.getString("key");
                     Instant latestOfKey = latest.get(key);
                     if (latestOfKey.isAfter(updatedByTxnRow.getInstant("lock_ts"))) {
@@ -124,7 +121,7 @@ public class CassandraImpl implements DBStrategy {
                             e.printStackTrace();
                         }
                     }
-                    ResultSet neededResult = session.execute(preparedSelectNeeded.bind(needed.keySet()));
+                    ResultSet neededResult = session.execute(preparedSelectNeeded.bind(new LinkedList<>(needed.keySet())));
                     Map<String, Row> keys = cqlInfo.getKeys();
                     for (Row neededRow : neededResult) {
                         String key = neededRow.getString("key");
@@ -149,7 +146,7 @@ public class CassandraImpl implements DBStrategy {
                     break;
                 } else {
                     selectUpdatedByTxn = QueryBuilder.selectFrom("ramp", "txn_lock").all().whereColumn("key").in(newer);
-                    updatedByTxn = session.execute(selectUpdatedByTxn.build());
+                    updatedByTxnList = session.execute(selectUpdatedByTxn.build()).all();
                 }
             }
         }
