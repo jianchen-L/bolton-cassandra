@@ -1,11 +1,10 @@
 package org.example.common;
 
 import com.datastax.oss.driver.api.core.cql.Row;
-import com.datastax.oss.driver.api.core.metadata.schema.ColumnMetadata;
+import com.datastax.oss.driver.api.core.metadata.schema.TableMetadata;
 import lombok.Data;
 import lombok.NonNull;
 
-import java.util.List;
 import java.util.Map;
 
 @Data
@@ -16,7 +15,7 @@ public class CqlInfo {
     private CqlType type;
     private String keyspace;
     private String table;
-    private List<ColumnMetadata> primaryColumns;
+    private TableMetadata tableMetadata;
     private Map<String, Row> keys;
     private String selectColumns;
 

@@ -4,6 +4,7 @@ import com.datastax.oss.driver.api.core.CqlSession;
 import com.datastax.oss.driver.api.core.cql.ResultSet;
 import com.datastax.oss.driver.api.core.cql.Row;
 import com.datastax.oss.driver.api.core.metadata.schema.ColumnMetadata;
+import com.datastax.oss.driver.api.core.metadata.schema.TableMetadata;
 import com.datastax.oss.driver.api.querybuilder.QueryBuilder;
 import com.datastax.oss.driver.api.querybuilder.select.Select;
 import org.example.common.CqlInfo;
@@ -42,8 +43,9 @@ public class CqlParser {
             // 解析要查询的列
             cqlInfo.setSelectColumns(selectMatcher.group(1));
             // 查询主键所在属性
-            List<ColumnMetadata> primaryColumns = session.getMetadata().getKeyspace(keyspaceAndTable[0]).get().getTable(keyspaceAndTable[1]).get().getPrimaryKey();
-            cqlInfo.setPrimaryColumns(primaryColumns);
+            TableMetadata tableMetadata = session.getMetadata().getKeyspace(keyspaceAndTable[0]).get().getTable(keyspaceAndTable[1]).get();
+            cqlInfo.setTableMetadata(tableMetadata);
+            List<ColumnMetadata> primaryColumns = tableMetadata.getPrimaryKey();
             // 获取查询数据的对应主键值
             StringBuilder primaryColumnsName = new StringBuilder(primaryColumns.get(0).getName().asInternal());
             for (int i = 1; i < primaryColumns.size(); i++) {
@@ -68,7 +70,9 @@ public class CqlParser {
             cqlInfo.setKeyspace(keyspaceAndTable[0]);
             cqlInfo.setTable(keyspaceAndTable[1]);
             // 查询主键所在属性
-            List<ColumnMetadata> primaryColumns = session.getMetadata().getKeyspace(keyspaceAndTable[0]).get().getTable(keyspaceAndTable[1]).get().getPrimaryKey();
+            TableMetadata tableMetadata = session.getMetadata().getKeyspace(keyspaceAndTable[0]).get().getTable(keyspaceAndTable[1]).get();
+            cqlInfo.setTableMetadata(tableMetadata);
+            List<ColumnMetadata> primaryColumns = tableMetadata.getPrimaryKey();
             // 获取插入数据的对应主键值
             Map<String, String> kv = new HashMap<>();
             String[] names = insertMatcher.group(2).replaceAll("[\\s\\n\\r]", "").split(",");
@@ -101,7 +105,9 @@ public class CqlParser {
             cqlInfo.setKeyspace(keyspaceAndTable[0]);
             cqlInfo.setTable(keyspaceAndTable[1]);
             // 查询主键所在属性
-            List<ColumnMetadata> primaryColumns = session.getMetadata().getKeyspace(keyspaceAndTable[0]).get().getTable(keyspaceAndTable[1]).get().getPrimaryKey();
+            TableMetadata tableMetadata = session.getMetadata().getKeyspace(keyspaceAndTable[0]).get().getTable(keyspaceAndTable[1]).get();
+            cqlInfo.setTableMetadata(tableMetadata);
+            List<ColumnMetadata> primaryColumns = tableMetadata.getPrimaryKey();
             // 获取更新数据的对应主键值
             StringBuilder primaryColumnsName = new StringBuilder(primaryColumns.get(0).getName().asInternal());
             for (int i = 1; i < primaryColumns.size(); i++) {
@@ -130,7 +136,9 @@ public class CqlParser {
             cqlInfo.setKeyspace(keyspaceAndTable[0]);
             cqlInfo.setTable(keyspaceAndTable[1]);
             // 查询主键所在属性
-            List<ColumnMetadata> primaryColumns = session.getMetadata().getKeyspace(keyspaceAndTable[0]).get().getTable(keyspaceAndTable[1]).get().getPrimaryKey();
+            TableMetadata tableMetadata = session.getMetadata().getKeyspace(keyspaceAndTable[0]).get().getTable(keyspaceAndTable[1]).get();
+            cqlInfo.setTableMetadata(tableMetadata);
+            List<ColumnMetadata> primaryColumns = tableMetadata.getPrimaryKey();
             // 获取更新数据的对应主键值
             StringBuilder primaryColumnsName = new StringBuilder(primaryColumns.get(0).getName().asInternal());
             for (int i = 1; i < primaryColumns.size(); i++) {
