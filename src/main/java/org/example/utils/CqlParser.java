@@ -144,6 +144,8 @@ public class CqlParser {
                 keys.put(location + "." + row.getFormattedContents(), row);
             }
             cqlInfo.setKeys(keys);
+        } else {
+            cqlInfo.setType(CqlType.OTHERS);
         }
         return cqlInfo;
     }

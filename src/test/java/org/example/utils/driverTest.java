@@ -33,6 +33,6 @@ public class driverTest {
 
     @Test
     public void test() {
-        session.execute("insert into ramp.txn_lock (key, lock_ts, tid) values ('tutorialspoint.emp.[emp_id:2, emp_name:''robin'']', 2023-01-06T03:56:46.019Z, 101L");
+        System.out.println(session.isClosed());
     }
 }

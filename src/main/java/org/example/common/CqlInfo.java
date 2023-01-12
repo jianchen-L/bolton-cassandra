@@ -14,13 +14,9 @@ public class CqlInfo {
     private String raw;
     @NonNull
     private CqlType type;
-    @NonNull
     private String keyspace;
-    @NonNull
     private String table;
-    @NonNull
     private List<ColumnMetadata> primaryColumns;
-    @NonNull
     private Map<String, Row> keys;
     private String selectColumns;
 
