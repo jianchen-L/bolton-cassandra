@@ -33,6 +33,7 @@ public class driverTest {
 
     @Test
     public void test() {
-        System.out.println(session.isClosed());
+        Instant now = Instant.now();
+        session.execute("UPDATE ramp.txn_info SET info_ts = ? where tid = ?", now, 102L);
     }
 }

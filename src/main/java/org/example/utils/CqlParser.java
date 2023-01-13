@@ -77,6 +77,7 @@ public class CqlParser {
             Map<String, String> kv = new HashMap<>();
             String[] names = insertMatcher.group(2).replaceAll("[\\s\\n\\r]", "").split(",");
             String[] values = insertMatcher.group(3).replaceAll("[\\s\\n\\r]", "").split(",");
+            cqlInfo.setInsertValues(values);
             for (int i = 0; i < names.length; i++) {
                 kv.put(names[i], values[i]);
             }

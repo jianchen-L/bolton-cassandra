@@ -18,6 +18,7 @@ public class CqlInfo {
     private TableMetadata tableMetadata;
     private Map<String, Row> keys;
     private String selectColumns;
+    private String[] insertValues;
 
     public CqlInfo(String raw) {
         this.raw = raw;

@@ -2,6 +2,7 @@ package org.example.db.impl;
 
 import com.datastax.oss.driver.api.core.CqlSession;
 import com.datastax.oss.driver.api.core.cql.*;
+import com.datastax.oss.driver.api.core.metadata.Metadata;
 import com.datastax.oss.driver.api.core.metadata.schema.ColumnMetadata;
 import com.datastax.oss.driver.api.core.type.DataTypes;
 import com.datastax.oss.driver.api.core.type.codec.TypeCodec;
@@ -14,6 +15,7 @@ import com.datastax.oss.driver.api.querybuilder.schema.CreateTable;
 import com.datastax.oss.driver.api.querybuilder.schema.CreateTableStart;
 import com.datastax.oss.driver.api.querybuilder.select.Select;
 import org.example.common.CqlInfo;
+import org.example.common.CqlType;
 import org.example.db.DBStrategy;
 
 import java.time.Instant;
@@ -52,30 +54,45 @@ public class CassandraImpl implements DBStrategy {
         Map<String, Row> allKeys = new HashMap<>();
         Map<String, CqlInfo> keyCqlInfoMap = new HashMap<>();
         List<Row> updatedByTxnList = new LinkedList<>();
+        Metadata metadata = session.getMetadata();
         for (CqlInfo cqlInfo : cqlInfos) {
             allKeys.putAll(cqlInfo.getKeys());
             Select selectResult = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), cqlInfo.getTable()).raw(cqlInfo.getSelectColumns());
-            Select selectUpdatedByTxn = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), "txn_lock_" + cqlInfo.getTable()).columns("lock_ts", "tid");
+            Select selectUpdatedByTxn = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), "txn_lock_" + cqlInfo.getTable()).columns("key", "lock_ts", "tid");
             for (ColumnMetadata primaryColumn : cqlInfo.getTableMetadata().getPrimaryKey()) {
                 selectResult = selectResult.whereColumn(primaryColumn.getName()).isEqualTo(QueryBuilder.bindMarker());
                 selectUpdatedByTxn = selectUpdatedByTxn.whereColumn(primaryColumn.getName()).isEqualTo(QueryBuilder.bindMarker());
             }
             PreparedStatement preparedSelectResult = session.prepare(selectResult.build());
-            PreparedStatement preparedSelectUpdatedByTxn = session.prepare(selectUpdatedByTxn.build());
-            for (Map.Entry<String, Row> key : cqlInfo.getKeys().entrySet()) {
-                keyCqlInfoMap.put(key.getKey(), cqlInfo);
-                BoundStatementBuilder boundSelectResult = preparedSelectResult.boundStatementBuilder();
-                BoundStatementBuilder boundSelectUpdatedByTxn = preparedSelectUpdatedByTxn.boundStatementBuilder();
-                Row keyRow = key.getValue();
-                for (int i = 0; i < keyRow.size(); i++) {
-                    TypeCodec<Object> codec = boundSelectResult.codecRegistry().codecFor(keyRow.getType(i));
-                    boundSelectResult.set(i, keyRow.get(i, codec), codec);
-                    boundSelectUpdatedByTxn.set(i, keyRow.get(i, codec), codec);
+            boolean tableExists = metadata.getKeyspace(cqlInfo.getKeyspace()).flatMap(ks -> ks.getTable("txn_lock_" + cqlInfo.getTable())).isPresent();
+            if (tableExists) {
+                PreparedStatement preparedSelectUpdatedByTxn = session.prepare(selectUpdatedByTxn.build());
+                for (Map.Entry<String, Row> key : cqlInfo.getKeys().entrySet()) {
+                    keyCqlInfoMap.put(key.getKey(), cqlInfo);
+                    BoundStatementBuilder boundSelectResult = preparedSelectResult.boundStatementBuilder();
+                    BoundStatementBuilder boundSelectUpdatedByTxn = preparedSelectUpdatedByTxn.boundStatementBuilder();
+                    Row keyRow = key.getValue();
+                    for (int i = 0; i < keyRow.size(); i++) {
+                        TypeCodec<Object> codec = boundSelectResult.codecRegistry().codecFor(keyRow.getType(i));
+                        boundSelectResult.set(i, keyRow.get(i, codec), codec);
+                        boundSelectUpdatedByTxn.set(i, keyRow.get(i, codec), codec);
+                    }
+                    result.put(key.getKey(), session.execute(boundSelectResult.build()).one().getFormattedContents());
+                    Row updatedByTxnRow = session.execute(boundSelectUpdatedByTxn.build()).one();
+                    if (updatedByTxnRow != null) {
+                        updatedByTxnList.add(updatedByTxnRow);
+                    }
                 }
-                result.put(key.getKey(), session.execute(boundSelectResult.build()).one().getFormattedContents());
-                Row updatedByTxnRow = session.execute(boundSelectUpdatedByTxn.build()).one();
-                if (updatedByTxnRow != null) {
-                    updatedByTxnList.add(updatedByTxnRow);
+            } else {
+                for (Map.Entry<String, Row> key : cqlInfo.getKeys().entrySet()) {
+                    keyCqlInfoMap.put(key.getKey(), cqlInfo);
+                    BoundStatementBuilder boundSelectResult = preparedSelectResult.boundStatementBuilder();
+                    Row keyRow = key.getValue();
+                    for (int i = 0; i < keyRow.size(); i++) {
+                        TypeCodec<Object> codec = boundSelectResult.codecRegistry().codecFor(keyRow.getType(i));
+                        boundSelectResult.set(i, keyRow.get(i, codec), codec);
+                    }
+                    result.put(key.getKey(), session.execute(boundSelectResult.build()).one().getFormattedContents());
                 }
             }
         }
@@ -206,23 +223,38 @@ public class CassandraImpl implements DBStrategy {
             for (ColumnMetadata clusteringColumn : cqlInfo.getTableMetadata().getClusteringColumns().keySet()) {
                 createTxnLock = createTxnLock.withClusteringColumn(clusteringColumn.getName(), clusteringColumn.getType());
             }
-            createTxnLock = createTxnLock.withColumn("lock_ts", DataTypes.TIMESTAMP).withColumn("tid", DataTypes.BIGINT);
+            createTxnLock = createTxnLock.withColumn("key", DataTypes.TEXT).withColumn("lock_ts", DataTypes.TIMESTAMP).withColumn("tid", DataTypes.BIGINT);
             session.execute(createTxnLock.build());
             RegularInsert insertTxnLock = QueryBuilder.insertInto(cqlInfo.getKeyspace(), "txn_lock_" + cqlInfo.getTable())
+                    .value("key", QueryBuilder.bindMarker())
                     .value("lock_ts", QueryBuilder.literal(timestamp))
                     .value("tid", QueryBuilder.literal(tid));
             for (ColumnMetadata primaryColumn : cqlInfo.getTableMetadata().getPrimaryKey()) {
                 insertTxnLock = insertTxnLock.value(primaryColumn.getName(), QueryBuilder.bindMarker());
             }
             PreparedStatement preparedInsertTxnLock = session.prepare(insertTxnLock.build());
-            for (Map.Entry<String, Row> key : cqlInfo.getKeys().entrySet()) {
+            if (cqlInfo.getType() == CqlType.INSERT) {
                 BoundStatementBuilder boundInsertTxnLock = preparedInsertTxnLock.boundStatementBuilder();
-                Row keyRow = key.getValue();
-                for (int i = 0; i < keyRow.size(); i++) {
-                    TypeCodec<Object> codec = boundInsertTxnLock.codecRegistry().codecFor(keyRow.getType(i));
-                    boundInsertTxnLock.set(i, keyRow.get(i, codec), codec);
+                boundInsertTxnLock.setString(0, cqlInfo.getKeys().keySet().iterator().next());
+                List<ColumnMetadata> primaryColumns = cqlInfo.getTableMetadata().getPrimaryKey();
+                String[] insertValues = cqlInfo.getInsertValues();
+                for (int i = 0; i < primaryColumns.size(); i++) {
+                    TypeCodec<Object> codec = boundInsertTxnLock.codecRegistry().codecFor(primaryColumns.get(i).getType());
+                    // 第0个索引绑定的是key，绑定主键的索引位置从1开始，所以是i + 1
+                    boundInsertTxnLock.set(i + 1, codec.parse(insertValues[i]), codec);
                 }
                 batchStatementBuilder.addStatement(boundInsertTxnLock.build());
+            } else {
+                for (Map.Entry<String, Row> key : cqlInfo.getKeys().entrySet()) {
+                    BoundStatementBuilder boundInsertTxnLock = preparedInsertTxnLock.boundStatementBuilder();
+                    boundInsertTxnLock.setString(0, key.getKey());
+                    Row keyRow = key.getValue();
+                    for (int i = 0; i < keyRow.size(); i++) {
+                        TypeCodec<Object> codec = boundInsertTxnLock.codecRegistry().codecFor(keyRow.getType(i));
+                        boundInsertTxnLock.set(i + 1, keyRow.get(i, codec), codec);
+                    }
+                    batchStatementBuilder.addStatement(boundInsertTxnLock.build());
+                }
             }
             batchStatementBuilder.addStatement(SimpleStatement.newInstance(cqlInfo.getRaw()));
         }
