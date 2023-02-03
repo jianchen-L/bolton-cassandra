@@ -19,17 +19,17 @@ import java.util.regex.Pattern;
 public class CqlParser {
 
     private static final CqlSession session = CqlSession.builder().build();
-    private static final Pattern selectPattern = Pattern.compile("select[\\s\\n\\r]+([\\s\\S]+)[\\s\\n\\r]+from[\\s\\n\\r]+([\\w.]+)[\\s\\S]*;$", Pattern.CASE_INSENSITIVE);
-    private static final Pattern insertPattern = Pattern.compile("insert[\\s\\n\\r]+into[\\s\\n\\r]+([\\w.]+)[\\s\\n\\r]*\\(([\\s\\S]+)\\)[\\s\\n\\r]*values[\\s\\n\\r]*\\(([\\s\\S]+)\\)[\\s\\S]*;$", Pattern.CASE_INSENSITIVE);
-    private static final Pattern updatePattern = Pattern.compile("update[\\s\\n\\r]+([\\w.]+)[\\s\\S]+set[\\s\\S]+where[\\s\\n\\r]+([\\s\\S]+?)(if[\\s\\S]+)*;$", Pattern.CASE_INSENSITIVE);
-    private static final Pattern deletePattern = Pattern.compile("delete[\\s\\n\\r]+([\\w\\s\\n\\r,]*)from[\\s\\n\\r]+([\\w.]+)[\\s\\S]+where[\\s\\n\\r]+([\\s\\S]+?)(if[\\s\\S]+)*;$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SELECT_PATTERN = Pattern.compile("select[\\s\\n\\r]+([\\s\\S]+)[\\s\\n\\r]+from[\\s\\n\\r]+([\\w.]+)[\\s\\S]*;$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern INSERT_PATTERN = Pattern.compile("insert[\\s\\n\\r]+into[\\s\\n\\r]+([\\w.]+)[\\s\\n\\r]*\\(([\\s\\S]+)\\)[\\s\\n\\r]*values[\\s\\n\\r]*\\(([\\s\\S]+)\\)[\\s\\S]*;$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern UPDATE_PATTERN = Pattern.compile("update[\\s\\n\\r]+([\\w.]+)[\\s\\S]+set[\\s\\S]+where[\\s\\n\\r]+([\\s\\S]+?)(if[\\s\\S]+)*;$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern DELETE_PATTERN = Pattern.compile("delete[\\s\\n\\r]+([\\w\\s\\n\\r,]*)from[\\s\\n\\r]+([\\w.]+)[\\s\\S]+where[\\s\\n\\r]+([\\s\\S]+?)(if[\\s\\S]+)*;$", Pattern.CASE_INSENSITIVE);
 
     public static CqlInfo parse(String cql) {
         CqlInfo cqlInfo = new CqlInfo(cql);
-        Matcher selectMatcher = selectPattern.matcher(cql);
-        Matcher insertMatcher = insertPattern.matcher(cql);
-        Matcher updateMatcher = updatePattern.matcher(cql);
-        Matcher deleteMatcher = deletePattern.matcher(cql);
+        Matcher selectMatcher = SELECT_PATTERN.matcher(cql);
+        Matcher insertMatcher = INSERT_PATTERN.matcher(cql);
+        Matcher updateMatcher = UPDATE_PATTERN.matcher(cql);
+        Matcher deleteMatcher = DELETE_PATTERN.matcher(cql);
         if (selectMatcher.matches()) {
             cqlInfo.setType(CqlType.SELECT);
             // 解析出要查询的键空间和表
@@ -77,10 +77,10 @@ public class CqlParser {
             Map<String, String> kv = new HashMap<>();
             String[] names = insertMatcher.group(2).replaceAll("[\\s\\n\\r]", "").split(",");
             String[] values = insertMatcher.group(3).replaceAll("[\\s\\n\\r]", "").split(",");
-            cqlInfo.setInsertValues(values);
             for (int i = 0; i < names.length; i++) {
                 kv.put(names[i], values[i]);
             }
+            cqlInfo.setInsertValues(kv);
             StringBuilder keySB = new StringBuilder(location + "." + "[");
             for (int i = 0; i < primaryColumns.size(); i++) {
                 if (i > 0) {

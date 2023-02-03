@@ -48,7 +48,12 @@ public class CassandraImpl implements DBStrategy {
     }
 
     @Override
-    public Collection<String> read(List<CqlInfo> cqlInfos) {
+    public ResultSet nonTxn(String cql) {
+        return session.execute(cql);
+    }
+
+    @Override
+    public Collection<String> txnRead(List<CqlInfo> cqlInfos) {
         // 关联读取结果的key和值
         Map<String, String> result = new HashMap<>();
         Map<String, Row> allKeys = new HashMap<>();
@@ -98,9 +103,7 @@ public class CassandraImpl implements DBStrategy {
         }
         // 原子可见性检查
         // 检查被事务更新过的数据项
-        if (updatedByTxnList.isEmpty()) {
-            return result.values();
-        } else {
+        if (!updatedByTxnList.isEmpty()) {
             while (!session.isClosed()) {
                 // 从事务元数据获取数据项的最新时间戳
                 Map<String, Instant> latest = new HashMap<>(updatedByTxnList.size());
@@ -199,13 +202,7 @@ public class CassandraImpl implements DBStrategy {
     }
 
     @Override
-    public void nonTxnWrite(CqlInfo cqlInfo) {
-        session.execute(cqlInfo.getRaw());
-    }
-
-    @Override
-    public CompletionStage<AsyncResultSet> txnWrite(List<CqlInfo> cqlInfos, long tid) {
-        Instant timestamp = Instant.now();
+    public CompletionStage<AsyncResultSet> txnWrite(List<CqlInfo> cqlInfos, long tid, Instant timestamp) {
         BatchStatementBuilder batchStatementBuilder = BatchStatement.builder(DefaultBatchType.LOGGED);
         Set<String> writeSet = new HashSet<>();
         for (CqlInfo cqlInfo : cqlInfos) {
@@ -237,11 +234,12 @@ public class CassandraImpl implements DBStrategy {
                 BoundStatementBuilder boundInsertTxnLock = preparedInsertTxnLock.boundStatementBuilder();
                 boundInsertTxnLock.setString(0, cqlInfo.getKeys().keySet().iterator().next());
                 List<ColumnMetadata> primaryColumns = cqlInfo.getTableMetadata().getPrimaryKey();
-                String[] insertValues = cqlInfo.getInsertValues();
+                Map<String, String> insertValues = cqlInfo.getInsertValues();
                 for (int i = 0; i < primaryColumns.size(); i++) {
-                    TypeCodec<Object> codec = boundInsertTxnLock.codecRegistry().codecFor(primaryColumns.get(i).getType());
+                    ColumnMetadata columnMetadata = primaryColumns.get(i);
+                    TypeCodec<Object> codec = boundInsertTxnLock.codecRegistry().codecFor(columnMetadata.getType());
                     // 第0个索引绑定的是key，绑定主键的索引位置从1开始，所以是i + 1
-                    boundInsertTxnLock.set(i + 1, codec.parse(insertValues[i]), codec);
+                    boundInsertTxnLock.set(i + 1, codec.parse(insertValues.get(columnMetadata.getName().asInternal())), codec);
                 }
                 batchStatementBuilder.addStatement(boundInsertTxnLock.build());
             } else {
