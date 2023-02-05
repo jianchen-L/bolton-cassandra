@@ -20,7 +20,6 @@ import org.example.db.DBStrategy;
 
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.CompletionStage;
 
 public class CassandraImpl implements DBStrategy {
 
@@ -202,7 +201,7 @@ public class CassandraImpl implements DBStrategy {
     }
 
     @Override
-    public CompletionStage<AsyncResultSet> txnWrite(List<CqlInfo> cqlInfos, long tid, Instant timestamp) {
+    public void txnWrite(List<CqlInfo> cqlInfos, long tid, Instant timestamp) {
         BatchStatementBuilder batchStatementBuilder = BatchStatement.builder(DefaultBatchType.LOGGED);
         Set<String> writeSet = new HashSet<>();
         for (CqlInfo cqlInfo : cqlInfos) {
@@ -257,6 +256,6 @@ public class CassandraImpl implements DBStrategy {
             batchStatementBuilder.addStatement(SimpleStatement.newInstance(cqlInfo.getRaw()));
         }
         batchStatementBuilder.addStatement(preparedInsertTxnInfo.bind(tid, timestamp, writeSet));
-        return session.executeAsync(batchStatementBuilder.build());
+        session.execute(batchStatementBuilder.build());
     }
 }

@@ -2,13 +2,14 @@ package org.example.utils;
 
 import com.datastax.oss.driver.api.core.CqlSession;
 import com.datastax.oss.driver.api.core.cql.PreparedStatement;
+import com.datastax.oss.driver.api.core.cql.ResultSet;
+import com.datastax.oss.driver.api.core.cql.Row;
 import com.datastax.oss.driver.api.querybuilder.QueryBuilder;
 import com.datastax.oss.driver.api.querybuilder.insert.Insert;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.Set;
-
 
 public class driverTest {
 
@@ -33,7 +34,9 @@ public class driverTest {
 
     @Test
     public void test() {
-        Instant now = Instant.now();
-        session.execute("UPDATE ramp.txn_info SET info_ts = ? where tid = ?", now, 102L);
+        ResultSet resultSet = session.execute("select * from tutorialspoint.emp");
+        for (Row row : resultSet) {
+            System.out.println(row.getFormattedContents());
+        }
     }
 }
