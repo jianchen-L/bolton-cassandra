@@ -17,17 +17,30 @@ import com.datastax.oss.driver.api.querybuilder.select.Select;
 import org.example.common.CqlInfo;
 import org.example.common.CqlType;
 import org.example.db.DBStrategy;
+import org.example.utils.SnowflakeDistributeId;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.*;
 
 public class CassandraImpl implements DBStrategy {
 
+    private static SnowflakeDistributeId snowflakeDistributeId;
     private final CqlSession session;
     private final PreparedStatement preparedInsertTxnInfo;
     private final PreparedStatement preparedSelectTxnInfo;
 
     public CassandraImpl() {
+        Properties props = new Properties();
+        try {
+            props.load(SnowflakeDistributeId.class.getResourceAsStream("/snowflake.properties"));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        long workerId = Integer.parseInt(props.getProperty("workerId"));
+        long datacenterId = Integer.parseInt(props.getProperty("datacenterId"));
+        snowflakeDistributeId = new SnowflakeDistributeId(workerId, datacenterId);
+
         session = CqlSession.builder().build();
         CreateKeyspace createRamp = SchemaBuilder.createKeyspace("ramp").ifNotExists().withSimpleStrategy(3);
         session.execute(createRamp.build());
@@ -160,18 +173,19 @@ public class CassandraImpl implements DBStrategy {
                             selectNeeded = selectNeeded.whereColumn(primaryColumns.get(i).getName())
                                     .isEqualTo(QueryBuilder.literal(keyRow.get(i, codec)));
                         }
+                        Select selectResult = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), cqlInfo.getTable()).raw(cqlInfo.getSelectColumns());
+                        for (int i = 0; i < keyRow.size(); i++) {
+                            TypeCodec<Object> codec = keyRow.codecRegistry().codecFor(keyRow.getType(i));
+                            selectResult = selectResult.whereColumn(primaryColumns.get(i).getName())
+                                    .isEqualTo(QueryBuilder.literal(keyRow.get(i, codec)));
+                        }
                         Row neededRow = session.execute(selectNeeded.build()).one();
+                        Row resultRow = session.execute(selectResult.build()).one();
                         Instant ts = neededRow.getInstant("lock_ts");
                         int compare = latest.get(neededKey).compareTo(ts);
                         if (compare == 0) {
                             needed.remove(neededKey);
-                            Select selectResult = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), cqlInfo.getTable()).raw(cqlInfo.getSelectColumns());
-                            for (int i = 0; i < keyRow.size(); i++) {
-                                TypeCodec<Object> codec = keyRow.codecRegistry().codecFor(keyRow.getType(i));
-                                selectResult = selectResult.whereColumn(primaryColumns.get(i).getName())
-                                        .isEqualTo(QueryBuilder.literal(keyRow.get(i, codec)));
-                            }
-                            result.put(neededKey, session.execute(selectResult.build()).one().getFormattedContents());
+                            result.put(neededKey, resultRow.getFormattedContents());
                         } else if (compare < 0) {
                             needed.remove(neededKey);
                             newers.add(neededKey);
@@ -185,7 +199,7 @@ public class CassandraImpl implements DBStrategy {
                     for (String newer : newers) {
                         CqlInfo cqlInfo = keyCqlInfoMap.get(newer);
                         Row keyRow = allKeys.get(newer);
-                        Select selectUpdatedByTxn = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), "txn_lock_" + cqlInfo.getTable()).columns("lock_ts", "tid");
+                        Select selectUpdatedByTxn = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), "txn_lock_" + cqlInfo.getTable()).columns("key", "lock_ts", "tid");
                         List<ColumnMetadata> primaryColumns = cqlInfo.getTableMetadata().getPrimaryKey();
                         for (int i = 0; i < keyRow.size(); i++) {
                             TypeCodec<Object> codec = keyRow.codecRegistry().codecFor(keyRow.getType(i));
@@ -201,7 +215,9 @@ public class CassandraImpl implements DBStrategy {
     }
 
     @Override
-    public void txnWrite(List<CqlInfo> cqlInfos, long tid, Instant timestamp) {
+    public void txnWrite(List<CqlInfo> cqlInfos) {
+        Instant timestamp = session.execute("select toTimestamp(now()) from system.local").one().getInstant(0);
+        long tid = snowflakeDistributeId.nextId();
         BatchStatementBuilder batchStatementBuilder = BatchStatement.builder(DefaultBatchType.LOGGED);
         Set<String> writeSet = new HashSet<>();
         for (CqlInfo cqlInfo : cqlInfos) {

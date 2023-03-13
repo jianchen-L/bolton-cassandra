@@ -1,14 +1,13 @@
 package org.example.utils;
 
 import com.datastax.oss.driver.api.core.CqlSession;
-import com.datastax.oss.driver.api.core.cql.PreparedStatement;
-import com.datastax.oss.driver.api.core.cql.ResultSet;
-import com.datastax.oss.driver.api.core.cql.Row;
+import com.datastax.oss.driver.api.core.cql.*;
 import com.datastax.oss.driver.api.querybuilder.QueryBuilder;
 import com.datastax.oss.driver.api.querybuilder.insert.Insert;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Set;
 
 public class driverTest {
@@ -34,9 +33,11 @@ public class driverTest {
 
     @Test
     public void test() {
-        ResultSet resultSet = session.execute("select * from tutorialspoint.emp");
-        for (Row row : resultSet) {
-            System.out.println(row.getFormattedContents());
-        }
+        BatchStatement batchStatement = BatchStatement.newInstance(DefaultBatchType.UNLOGGED,
+                SimpleStatement.newInstance("SELECT * FROM correct.test_a;"),
+                SimpleStatement.newInstance("SELECT * from correct.txn_lock_test_a;"));
+        List<Row> result = session.execute(batchStatement).all();
+        System.out.println(result.get(0).getFormattedContents());
+        System.out.println(result.get(1).getFormattedContents());
     }
 }

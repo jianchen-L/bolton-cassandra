@@ -3,7 +3,6 @@ package org.example.db;
 import com.datastax.oss.driver.api.core.cql.ResultSet;
 import org.example.common.CqlInfo;
 
-import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 
@@ -26,9 +25,7 @@ public interface DBStrategy {
     /**
      * 写事务
      * @param cqlInfos cql解析结果列表
-     * @param tid 事务id
-     * @param timestamp 事务时间戳
      * @return 异步写入返回对象
      */
-    void txnWrite(List<CqlInfo> cqlInfos, long tid, Instant timestamp);
+    void txnWrite(List<CqlInfo> cqlInfos);
 }

@@ -2,36 +2,20 @@ package org.example;
 
 import com.datastax.oss.driver.api.core.cql.ResultSet;
 import com.datastax.oss.driver.api.core.cql.Row;
-import org.apache.commons.net.ntp.NTPUDPClient;
-import org.apache.commons.net.ntp.TimeInfo;
-import org.apache.commons.net.ntp.TimeStamp;
 import org.example.common.CqlInfo;
 import org.example.common.CqlType;
 import org.example.db.DBStrategy;
 import org.example.db.impl.CassandraImpl;
 import org.example.utils.CqlParser;
-import org.example.utils.SnowflakeDistributeId;
 
-import java.io.IOException;
-import java.net.InetAddress;
-import java.time.Instant;
-import java.util.*;
+import java.util.Collection;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Scanner;
 
 public class Main {
 
     private static DBStrategy dbStrategy;
-    private static SnowflakeDistributeId snowflakeDistributeId;
-    static {
-        Properties props = new Properties();
-        try {
-            props.load(SnowflakeDistributeId.class.getResourceAsStream("/snowflake.properties"));
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        long workerId = Integer.parseInt(props.getProperty("workerId"));
-        long datacenterId = Integer.parseInt(props.getProperty("datacenterId"));
-        snowflakeDistributeId = new SnowflakeDistributeId(workerId, datacenterId);
-    }
 
     public static void main(String[] args) {
         dbStrategy = new CassandraImpl();
@@ -59,10 +43,8 @@ public class Main {
                             e.printStackTrace();
                         }
                     } else {
-                        long tid = snowflakeDistributeId.nextId();
-                        Instant timestamp = getNTPTime();
                         try {
-                            dbStrategy.txnWrite(txnCqls, tid, timestamp);
+                            dbStrategy.txnWrite(txnCqls);
                         } catch (Exception e) {
                             e.printStackTrace();
                         }
@@ -89,17 +71,17 @@ public class Main {
         System.exit(0);
     }
 
-    private static Instant getNTPTime() {
-        NTPUDPClient timeClient = new NTPUDPClient();
-        String timeServerUrl = "ntp.aliyun.com";
-        TimeInfo timeInfo = null;
-        try {
-            InetAddress timeServerAddress = InetAddress.getByName(timeServerUrl);
-            timeInfo = timeClient.getTime(timeServerAddress);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        TimeStamp timeStamp = timeInfo.getMessage().getTransmitTimeStamp();
-        return Instant.ofEpochMilli(timeStamp.getTime());
-    }
+//    public static Instant getNTPTime() {
+//        NTPUDPClient timeClient = new NTPUDPClient();
+//        String timeServerUrl = "ntp.aliyun.com";
+//        TimeInfo timeInfo = null;
+//        try {
+//            InetAddress timeServerAddress = InetAddress.getByName(timeServerUrl);
+//            timeInfo = timeClient.getTime(timeServerAddress);
+//        } catch (Exception e) {
+//            e.printStackTrace();
+//        }
+//        TimeStamp timeStamp = timeInfo.getMessage().getTransmitTimeStamp();
+//        return Instant.ofEpochMilli(timeStamp.getTime());
+//    }
 }
