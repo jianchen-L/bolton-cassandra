@@ -107,35 +107,38 @@ public class RAMPLauncher extends AbstractJavaSamplerClient {
 
     @Override
     public SampleResult runTest(JavaSamplerContext javaSamplerContext) {
-        // 创建SampleResult对象，用于记录执行结果的状态，并返回
-        SampleResult sampleResult = new SampleResult();
+        int threadNum = javaSamplerContext.getJMeterContext().getThreadNum();
         Random pages = new Random();
         Random year = new Random();
+        Random update = new Random();
+        // 创建SampleResult对象，用于记录执行结果的状态，并返回
+        SampleResult sampleResult = new SampleResult();
         // 开始
         sampleResult.sampleStart();
         try {
             for (int i = 1; i <= 1000; i++) {
                 if (i % 33 != 0) {
-                    dbStrategy.nonTxn(String.format("INSERT INTO store.books_by_title (title, author_id, pages, year)VALUES ('Book %d', %s, %d, %d);", i, UUID.randomUUID(), pages.nextInt(100, 999), year.nextInt(1900, 2023)));
+                    dbStrategy.nonTxn(String.format("INSERT INTO store.books_by_title (title, author_id, pages, year)VALUES ('%d Book %d', %s, %d, %d);", threadNum, i, UUID.randomUUID(), pages.nextInt(100, 999), year.nextInt(1900, 2023)));
                 } else if (i % 5 != 0) {
                     List<CqlInfo> txnCqls = new LinkedList<>();
-                    txnCqls.add(CqlParser.parse(String.format("INSERT INTO store.books_by_title (title, author_id, pages, year)VALUES ('Book Batch1 %d', %s, %d, %d);", i, UUID.randomUUID(), pages.nextInt(100, 999), year.nextInt(1900, 2023))));
-                    txnCqls.add(CqlParser.parse(String.format("INSERT INTO store.books_by_title (title, author_id, pages, year)VALUES ('Book Batch2 %d', %s, %d, %d);", i, UUID.randomUUID(), pages.nextInt(100, 999), year.nextInt(1900, 2023))));
-                    txnCqls.add(CqlParser.parse(String.format("INSERT INTO store.books_by_title (title, author_id, pages, year)VALUES ('Book Batch3 %d', %s, %d, %d);", i, UUID.randomUUID(), pages.nextInt(100, 999), year.nextInt(1900, 2023))));
+                    txnCqls.add(CqlParser.parse(String.format("INSERT INTO store.books_by_title (title, author_id, pages, year)VALUES ('%d Book1 Batch %d', %s, %d, %d);", threadNum, i, UUID.randomUUID(), pages.nextInt(100, 999), year.nextInt(1900, 2023))));
+                    txnCqls.add(CqlParser.parse(String.format("INSERT INTO store.books_by_title (title, author_id, pages, year)VALUES ('%d Book2 Batch %d', %s, %d, %d);", threadNum, i, UUID.randomUUID(), pages.nextInt(100, 999), year.nextInt(1900, 2023))));
+                    txnCqls.add(CqlParser.parse(String.format("INSERT INTO store.books_by_title (title, author_id, pages, year)VALUES ('%d Book3 Batch %d', %s, %d, %d);", threadNum, i, UUID.randomUUID(), pages.nextInt(100, 999), year.nextInt(1900, 2023))));
                     dbStrategy.txnWrite(txnCqls);
                 } else {
                     List<CqlInfo> txnCqls = new LinkedList<>();
-                    txnCqls.add(CqlParser.parse(String.format("UPDATE store.books_by_title SET pages=%d, year=%d WHERE title='Book Batch1 %d';", i / 5, pages.nextInt(100, 999), year.nextInt(1900, 2023))));
-                    txnCqls.add(CqlParser.parse(String.format("UPDATE store.books_by_title SET pages=%d, year=%d WHERE title='Book Batch2 %d';", i / 5, pages.nextInt(100, 999), year.nextInt(1900, 2023))));
-                    txnCqls.add(CqlParser.parse(String.format("UPDATE store.books_by_title SET pages=%d, year=%d WHERE title='Book Batch3 %d';", i / 5, pages.nextInt(100, 999), year.nextInt(1900, 2023))));
+                    int num = update.nextInt(i - 164, i);
+                    txnCqls.add(CqlParser.parse(String.format("UPDATE store.books_by_title SET pages=%d, year=%d WHERE title='%d Book1 Batch %d';", pages.nextInt(100, 999), year.nextInt(1900, 2023), threadNum, num)));
+                    txnCqls.add(CqlParser.parse(String.format("UPDATE store.books_by_title SET pages=%d, year=%d WHERE title='%d Book2 Batch %d';", pages.nextInt(100, 999), year.nextInt(1900, 2023), threadNum, num)));
+                    txnCqls.add(CqlParser.parse(String.format("UPDATE store.books_by_title SET pages=%d, year=%d WHERE title='%d Book3 Batch %d';", pages.nextInt(100, 999), year.nextInt(1900, 2023), threadNum, num)));
                     dbStrategy.txnWrite(txnCqls);
                 }
                 if (i % 3 == 0) {
-                    dbStrategy.nonTxn(String.format("SELECT title, author_id FROM store.books_by_title WHERE title = 'Book %d';", i / 2));
+                    dbStrategy.nonTxn(String.format("SELECT title, author_id FROM store.books_by_title WHERE title = '%d Book %d';", threadNum, i / 2));
                 }
                 if (i % 99 == 0) {
                     List<CqlInfo> txnCqls = new LinkedList<>();
-                    txnCqls.add(CqlParser.parse(String.format("SELECT title, author_id FROM store.books_by_title WHERE title = 'Book Batch1 %d';", i / 3)));
+                    txnCqls.add(CqlParser.parse(String.format("SELECT title, author_id FROM store.books_by_title WHERE title = '%d Book1 Batch %d';", threadNum, i / 3)));
                     dbStrategy.txnRead(txnCqls);
                 }
             }

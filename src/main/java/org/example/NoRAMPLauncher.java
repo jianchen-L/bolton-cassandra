@@ -36,19 +36,20 @@ public class NoRAMPLauncher extends AbstractJavaSamplerClient {
 
     @Override
     public SampleResult runTest(JavaSamplerContext javaSamplerContext) {
-        // 创建SampleResult对象，用于记录执行结果的状态，并返回
-        SampleResult sampleResult = new SampleResult();
+        int threadNum = javaSamplerContext.getJMeterContext().getThreadNum();
         Random pages = new Random();
         Random year = new Random();
+        // 创建SampleResult对象，用于记录执行结果的状态，并返回
+        SampleResult sampleResult = new SampleResult();
         // 开始
         sampleResult.sampleStart();
         try {
             for (int i = 1; i <= 1000; i++) {
                 if (i % 33 != 0) {
-                    dbStrategy.nonTxn(String.format("INSERT INTO store_no_ramp.books_by_title (title, author_id, pages, year)VALUES ('Book %d', %s, %d, %d);", i, UUID.randomUUID(), pages.nextInt(100, 999), year.nextInt(1900, 2023)));
+                    dbStrategy.nonTxn(String.format("INSERT INTO store_no_ramp.books_by_title (title, author_id, pages, year)VALUES ('%d Book %d', %s, %d, %d);", threadNum, i, UUID.randomUUID(), pages.nextInt(100, 999), year.nextInt(1900, 2023)));
                 }
                 if (i % 3 == 0) {
-                    dbStrategy.nonTxn(String.format("SELECT title, author_id FROM store_no_ramp.books_by_title WHERE title = 'Book %d';", i / 2));
+                    dbStrategy.nonTxn(String.format("SELECT title, author_id FROM store_no_ramp.books_by_title WHERE title = '%d Book %d';", threadNum, i / 2));
                 }
             }
 

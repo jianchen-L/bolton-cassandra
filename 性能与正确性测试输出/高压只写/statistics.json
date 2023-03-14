@@ -1,0 +1,50 @@
+{
+  "RAMP" : {
+    "transaction" : "RAMP",
+    "sampleCount" : 3000,
+    "errorCount" : 0,
+    "errorPct" : 0.0,
+    "meanResTime" : 5042.078000000009,
+    "medianResTime" : 5132.0,
+    "minResTime" : 2076.0,
+    "maxResTime" : 8159.0,
+    "pct1ResTime" : 5929.0,
+    "pct2ResTime" : 6189.0,
+    "pct3ResTime" : 6997.7499999999945,
+    "throughput" : 2.7964257949772464,
+    "receivedKBytesPerSec" : 0.0,
+    "sentKBytesPerSec" : 0.0
+  },
+  "Total" : {
+    "transaction" : "Total",
+    "sampleCount" : 6000,
+    "errorCount" : 0,
+    "errorPct" : 0.0,
+    "meanResTime" : 4783.984999999974,
+    "medianResTime" : 4848.0,
+    "minResTime" : 1853.0,
+    "maxResTime" : 8159.0,
+    "pct1ResTime" : 5699.0,
+    "pct2ResTime" : 5997.9,
+    "pct3ResTime" : 6735.0,
+    "throughput" : 5.581410924867697,
+    "receivedKBytesPerSec" : 0.0,
+    "sentKBytesPerSec" : 0.0
+  },
+  "原生" : {
+    "transaction" : "原生",
+    "sampleCount" : 3000,
+    "errorCount" : 0,
+    "errorPct" : 0.0,
+    "meanResTime" : 4525.891999999995,
+    "medianResTime" : 4624.0,
+    "minResTime" : 1853.0,
+    "maxResTime" : 7619.0,
+    "pct1ResTime" : 5349.0,
+    "pct2ResTime" : 5554.749999999999,
+    "pct3ResTime" : 6472.739999999994,
+    "throughput" : 2.800231485802826,
+    "receivedKBytesPerSec" : 0.0,
+    "sentKBytesPerSec" : 0.0
+  }
+}

@@ -1,6 +1,7 @@
 package org.example.db;
 
 import com.datastax.oss.driver.api.core.cql.ResultSet;
+import com.datastax.oss.driver.api.core.cql.Row;
 import org.example.common.CqlInfo;
 
 import java.util.Collection;
@@ -20,12 +21,11 @@ public interface DBStrategy {
      * @param cqlInfos cql解析结果列表
      * @return 读取结果
      */
-    Collection<String> txnRead(List<CqlInfo> cqlInfos);
+    Collection<Row> txnRead(List<CqlInfo> cqlInfos);
 
     /**
      * 写事务
      * @param cqlInfos cql解析结果列表
-     * @return 异步写入返回对象
      */
     void txnWrite(List<CqlInfo> cqlInfos);
 }

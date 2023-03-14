@@ -35,9 +35,9 @@ public class Main {
                 } else if (command.matches("end[\\s\\n\\r]+ramp[\\s\\n\\r]*;")) {
                     if (txnCqls.get(0).getType() == CqlType.SELECT) {
                         try {
-                            Collection<String> result = dbStrategy.txnRead(txnCqls);
-                            for (String s : result) {
-                                System.out.println(s);
+                            Collection<Row> result = dbStrategy.txnRead(txnCqls);
+                            for (Row s : result) {
+                                System.out.println(s.getFormattedContents());
                             }
                         } catch (Exception e) {
                             e.printStackTrace();

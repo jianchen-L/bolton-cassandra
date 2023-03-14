@@ -2,8 +2,8 @@ package org.example.db.impl;
 
 import com.datastax.oss.driver.api.core.CqlSession;
 import com.datastax.oss.driver.api.core.cql.*;
-import com.datastax.oss.driver.api.core.metadata.Metadata;
 import com.datastax.oss.driver.api.core.metadata.schema.ColumnMetadata;
+import com.datastax.oss.driver.api.core.servererrors.InvalidQueryException;
 import com.datastax.oss.driver.api.core.type.DataTypes;
 import com.datastax.oss.driver.api.core.type.codec.TypeCodec;
 import com.datastax.oss.driver.api.querybuilder.QueryBuilder;
@@ -12,8 +12,10 @@ import com.datastax.oss.driver.api.querybuilder.insert.Insert;
 import com.datastax.oss.driver.api.querybuilder.insert.RegularInsert;
 import com.datastax.oss.driver.api.querybuilder.schema.CreateKeyspace;
 import com.datastax.oss.driver.api.querybuilder.schema.CreateTable;
-import com.datastax.oss.driver.api.querybuilder.schema.CreateTableStart;
 import com.datastax.oss.driver.api.querybuilder.select.Select;
+import com.datastax.oss.driver.api.querybuilder.term.Term;
+import com.datastax.oss.driver.api.querybuilder.update.Assignment;
+import com.datastax.oss.driver.api.querybuilder.update.UpdateWithAssignments;
 import org.example.common.CqlInfo;
 import org.example.common.CqlType;
 import org.example.db.DBStrategy;
@@ -65,39 +67,31 @@ public class CassandraImpl implements DBStrategy {
     }
 
     @Override
-    public Collection<String> txnRead(List<CqlInfo> cqlInfos) {
+    public Collection<Row> txnRead(List<CqlInfo> cqlInfos) {
         // 关联读取结果的key和值
-        Map<String, String> result = new HashMap<>();
+        Map<String, Row> result = new HashMap<>();
         Map<String, Row> allKeys = new HashMap<>();
         Map<String, CqlInfo> keyCqlInfoMap = new HashMap<>();
         List<Row> updatedByTxnList = new LinkedList<>();
-        Metadata metadata = session.getMetadata();
         for (CqlInfo cqlInfo : cqlInfos) {
             allKeys.putAll(cqlInfo.getKeys());
-            Select selectResult = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), cqlInfo.getTable()).raw(cqlInfo.getSelectColumns());
-            Select selectUpdatedByTxn = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), "txn_lock_" + cqlInfo.getTable()).columns("key", "lock_ts", "tid");
+            Select selectResult = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), cqlInfo.getTable()).raw(cqlInfo.getSelectColumns()).columns("key", "lock_ts", "tid");
             for (ColumnMetadata primaryColumn : cqlInfo.getTableMetadata().getPrimaryKey()) {
                 selectResult = selectResult.whereColumn(primaryColumn.getName()).isEqualTo(QueryBuilder.bindMarker());
-                selectUpdatedByTxn = selectUpdatedByTxn.whereColumn(primaryColumn.getName()).isEqualTo(QueryBuilder.bindMarker());
             }
             PreparedStatement preparedSelectResult = session.prepare(selectResult.build());
-            boolean tableExists = metadata.getKeyspace(cqlInfo.getKeyspace()).flatMap(ks -> ks.getTable("txn_lock_" + cqlInfo.getTable())).isPresent();
-            if (tableExists) {
-                PreparedStatement preparedSelectUpdatedByTxn = session.prepare(selectUpdatedByTxn.build());
+            if (cqlInfo.getTableMetadata().getColumn("key").isPresent()) {
                 for (Map.Entry<String, Row> key : cqlInfo.getKeys().entrySet()) {
                     keyCqlInfoMap.put(key.getKey(), cqlInfo);
                     BoundStatementBuilder boundSelectResult = preparedSelectResult.boundStatementBuilder();
-                    BoundStatementBuilder boundSelectUpdatedByTxn = preparedSelectUpdatedByTxn.boundStatementBuilder();
                     Row keyRow = key.getValue();
                     for (int i = 0; i < keyRow.size(); i++) {
                         TypeCodec<Object> codec = boundSelectResult.codecRegistry().codecFor(keyRow.getType(i));
                         boundSelectResult.set(i, keyRow.get(i, codec), codec);
-                        boundSelectUpdatedByTxn.set(i, keyRow.get(i, codec), codec);
                     }
-                    result.put(key.getKey(), session.execute(boundSelectResult.build()).one().getFormattedContents());
-                    Row updatedByTxnRow = session.execute(boundSelectUpdatedByTxn.build()).one();
-                    if (updatedByTxnRow != null) {
-                        updatedByTxnList.add(updatedByTxnRow);
+                    result.put(key.getKey(), session.execute(boundSelectResult.build()).one());
+                    if (result.get(key.getKey()).getString("key") != null) {
+                        updatedByTxnList.add(result.get(key.getKey()));
                     }
                 }
             } else {
@@ -109,7 +103,7 @@ public class CassandraImpl implements DBStrategy {
                         TypeCodec<Object> codec = boundSelectResult.codecRegistry().codecFor(keyRow.getType(i));
                         boundSelectResult.set(i, keyRow.get(i, codec), codec);
                     }
-                    result.put(key.getKey(), session.execute(boundSelectResult.build()).one().getFormattedContents());
+                    result.put(key.getKey(), session.execute(boundSelectResult.build()).one());
                 }
             }
         }
@@ -144,10 +138,10 @@ public class CassandraImpl implements DBStrategy {
                 }
                 // 获取需要等待复制的数据项
                 List<String> needed = new LinkedList<>();
-                for (Row updatedByTxnRow : updatedByTxnList) {
-                    String key = updatedByTxnRow.getString("key");
+                for (Row resultRow : result.values()) {
+                    String key = resultRow.getString("key");
                     Instant latestOfKey = latest.get(key);
-                    if (latestOfKey.isAfter(updatedByTxnRow.getInstant("lock_ts"))) {
+                    if (latestOfKey.isAfter(resultRow.getInstant("lock_ts"))) {
                         needed.add(key);
                     }
                 }
@@ -163,29 +157,23 @@ public class CassandraImpl implements DBStrategy {
                             e.printStackTrace();
                         }
                     }
+//                    System.out.println("尝试获取最新版本第" + loopCount + "次");
                     for (String neededKey : needed) {
                         CqlInfo cqlInfo = keyCqlInfoMap.get(neededKey);
                         Row keyRow = allKeys.get(neededKey);
-                        Select selectNeeded = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), "txn_lock_" + cqlInfo.getTable()).columns("lock_ts");
                         List<ColumnMetadata> primaryColumns = cqlInfo.getTableMetadata().getPrimaryKey();
+                        Select selectNeeded = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), cqlInfo.getTable()).columns("lock_ts").raw(cqlInfo.getSelectColumns());
                         for (int i = 0; i < keyRow.size(); i++) {
                             TypeCodec<Object> codec = keyRow.codecRegistry().codecFor(keyRow.getType(i));
                             selectNeeded = selectNeeded.whereColumn(primaryColumns.get(i).getName())
                                     .isEqualTo(QueryBuilder.literal(keyRow.get(i, codec)));
                         }
-                        Select selectResult = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), cqlInfo.getTable()).raw(cqlInfo.getSelectColumns());
-                        for (int i = 0; i < keyRow.size(); i++) {
-                            TypeCodec<Object> codec = keyRow.codecRegistry().codecFor(keyRow.getType(i));
-                            selectResult = selectResult.whereColumn(primaryColumns.get(i).getName())
-                                    .isEqualTo(QueryBuilder.literal(keyRow.get(i, codec)));
-                        }
                         Row neededRow = session.execute(selectNeeded.build()).one();
-                        Row resultRow = session.execute(selectResult.build()).one();
                         Instant ts = neededRow.getInstant("lock_ts");
                         int compare = latest.get(neededKey).compareTo(ts);
                         if (compare == 0) {
                             needed.remove(neededKey);
-                            result.put(neededKey, resultRow.getFormattedContents());
+                            result.put(neededKey, neededRow);
                         } else if (compare < 0) {
                             needed.remove(neededKey);
                             newers.add(neededKey);
@@ -195,18 +183,21 @@ public class CassandraImpl implements DBStrategy {
                 if (newers.size() == 0) {
                     break;
                 } else {
+//                    System.out.println("读取到更新版本，重新进行原子可见性检查");
                     updatedByTxnList.clear();
                     for (String newer : newers) {
+
                         CqlInfo cqlInfo = keyCqlInfoMap.get(newer);
                         Row keyRow = allKeys.get(newer);
-                        Select selectUpdatedByTxn = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), "txn_lock_" + cqlInfo.getTable()).columns("key", "lock_ts", "tid");
+                        Select selectUpdatedByTxn = QueryBuilder.selectFrom(cqlInfo.getKeyspace(), cqlInfo.getTable()).raw(cqlInfo.getSelectColumns()).columns("key", "lock_ts", "tid");
                         List<ColumnMetadata> primaryColumns = cqlInfo.getTableMetadata().getPrimaryKey();
                         for (int i = 0; i < keyRow.size(); i++) {
                             TypeCodec<Object> codec = keyRow.codecRegistry().codecFor(keyRow.getType(i));
                             selectUpdatedByTxn = selectUpdatedByTxn.whereColumn(primaryColumns.get(i).getName())
                                     .isEqualTo(QueryBuilder.literal(keyRow.get(i, codec)));
                         }
-                        updatedByTxnList.add(session.execute(selectUpdatedByTxn.build()).one());
+                        result.put(newer, session.execute(selectUpdatedByTxn.build()).one());
+                        updatedByTxnList.add(result.get(newer));
                     }
                 }
             }
@@ -222,54 +213,41 @@ public class CassandraImpl implements DBStrategy {
         Set<String> writeSet = new HashSet<>();
         for (CqlInfo cqlInfo : cqlInfos) {
             writeSet.addAll(cqlInfo.getKeys().keySet());
-            CreateTable createTxnLock = null;
-            CreateTableStart createTxnLockStart = SchemaBuilder.createTable(cqlInfo.getKeyspace(), "txn_lock_" + cqlInfo.getTable()).ifNotExists();
-            List<ColumnMetadata> partitionColumns = cqlInfo.getTableMetadata().getPartitionKey();
-            for (int i = 0; i < partitionColumns.size(); i++) {
-                if (i == 0) {
-                    createTxnLock = createTxnLockStart.withPartitionKey(partitionColumns.get(i).getName(), partitionColumns.get(i).getType());
-                } else {
-                    createTxnLock = createTxnLock.withPartitionKey(partitionColumns.get(i).getName(), partitionColumns.get(i).getType());
+            if (cqlInfo.getTableMetadata().getColumn("key").isEmpty()) {
+                try {
+                    session.execute(SchemaBuilder.alterTable(cqlInfo.getKeyspace(), cqlInfo.getTable()).addColumn("key", DataTypes.TEXT).addColumn("lock_ts", DataTypes.TIMESTAMP).addColumn("tid", DataTypes.BIGINT).build());
+                } catch (InvalidQueryException ignored) {
+
                 }
             }
-            for (ColumnMetadata clusteringColumn : cqlInfo.getTableMetadata().getClusteringColumns().keySet()) {
-                createTxnLock = createTxnLock.withClusteringColumn(clusteringColumn.getName(), clusteringColumn.getType());
-            }
-            createTxnLock = createTxnLock.withColumn("key", DataTypes.TEXT).withColumn("lock_ts", DataTypes.TIMESTAMP).withColumn("tid", DataTypes.BIGINT);
-            session.execute(createTxnLock.build());
-            RegularInsert insertTxnLock = QueryBuilder.insertInto(cqlInfo.getKeyspace(), "txn_lock_" + cqlInfo.getTable())
-                    .value("key", QueryBuilder.bindMarker())
-                    .value("lock_ts", QueryBuilder.literal(timestamp))
-                    .value("tid", QueryBuilder.literal(tid));
-            for (ColumnMetadata primaryColumn : cqlInfo.getTableMetadata().getPrimaryKey()) {
-                insertTxnLock = insertTxnLock.value(primaryColumn.getName(), QueryBuilder.bindMarker());
-            }
-            PreparedStatement preparedInsertTxnLock = session.prepare(insertTxnLock.build());
             if (cqlInfo.getType() == CqlType.INSERT) {
-                BoundStatementBuilder boundInsertTxnLock = preparedInsertTxnLock.boundStatementBuilder();
-                boundInsertTxnLock.setString(0, cqlInfo.getKeys().keySet().iterator().next());
-                List<ColumnMetadata> primaryColumns = cqlInfo.getTableMetadata().getPrimaryKey();
-                Map<String, String> insertValues = cqlInfo.getInsertValues();
-                for (int i = 0; i < primaryColumns.size(); i++) {
-                    ColumnMetadata columnMetadata = primaryColumns.get(i);
-                    TypeCodec<Object> codec = boundInsertTxnLock.codecRegistry().codecFor(columnMetadata.getType());
-                    // 第0个索引绑定的是key，绑定主键的索引位置从1开始，所以是i + 1
-                    boundInsertTxnLock.set(i + 1, codec.parse(insertValues.get(columnMetadata.getName().asInternal())), codec);
+                Map<String, Term> insertKVCast = new HashMap<>();
+                for (Map.Entry<String, String> insertKV : cqlInfo.getWriteValues().entrySet()) {
+                    insertKVCast.put(insertKV.getKey(), QueryBuilder.literal(insertKV.getValue()));
                 }
-                batchStatementBuilder.addStatement(boundInsertTxnLock.build());
+                RegularInsert insert = QueryBuilder.insertInto(cqlInfo.getKeyspace(), cqlInfo.getTable())
+                        .value("key", QueryBuilder.literal(cqlInfo.getKeys().keySet().iterator().next()))
+                        .value("lock_ts", QueryBuilder.literal(timestamp))
+                        .value("tid", QueryBuilder.literal(tid));
+                for (Map.Entry<String, String> insertKV : cqlInfo.getWriteValues().entrySet()) {
+                    ColumnMetadata columnMetadata = cqlInfo.getTableMetadata().getColumn(insertKV.getKey()).get();
+                    TypeCodec<Object> codec = session.getContext().getCodecRegistry().codecFor(columnMetadata.getType());
+                    insert = insert.value(insertKV.getKey(), QueryBuilder.literal(codec.parse(insertKV.getValue())));
+                }
+                batchStatementBuilder.addStatement(insert.build());
+            } else if (cqlInfo.getType() == CqlType.UPDATE) {
+                UpdateWithAssignments updateWithAssignments = QueryBuilder.update(cqlInfo.getKeyspace(), cqlInfo.getTable())
+                        .set(Assignment.setColumn("lock_ts", QueryBuilder.literal(timestamp)),
+                        Assignment.setColumn("tid", QueryBuilder.literal(tid)));
+                for (Map.Entry<String, String> updateKV : cqlInfo.getWriteValues().entrySet()) {
+                    ColumnMetadata columnMetadata = cqlInfo.getTableMetadata().getColumn(updateKV.getKey()).get();
+                    TypeCodec<Object> codec = session.getContext().getCodecRegistry().codecFor(columnMetadata.getType());
+                    updateWithAssignments = updateWithAssignments.setColumn(updateKV.getKey(), QueryBuilder.literal(codec.parse(updateKV.getValue())));
+                }
+                batchStatementBuilder.addStatement(updateWithAssignments.whereRaw(cqlInfo.getRaw().substring(cqlInfo.getRaw().indexOf("WHERE") + 5, cqlInfo.getRaw().length() - 1)).build());
             } else {
-                for (Map.Entry<String, Row> key : cqlInfo.getKeys().entrySet()) {
-                    BoundStatementBuilder boundInsertTxnLock = preparedInsertTxnLock.boundStatementBuilder();
-                    boundInsertTxnLock.setString(0, key.getKey());
-                    Row keyRow = key.getValue();
-                    for (int i = 0; i < keyRow.size(); i++) {
-                        TypeCodec<Object> codec = boundInsertTxnLock.codecRegistry().codecFor(keyRow.getType(i));
-                        boundInsertTxnLock.set(i + 1, keyRow.get(i, codec), codec);
-                    }
-                    batchStatementBuilder.addStatement(boundInsertTxnLock.build());
-                }
+                batchStatementBuilder.addStatement(SimpleStatement.newInstance(cqlInfo.getRaw()));
             }
-            batchStatementBuilder.addStatement(SimpleStatement.newInstance(cqlInfo.getRaw()));
         }
         batchStatementBuilder.addStatement(preparedInsertTxnInfo.bind(tid, timestamp, writeSet));
         session.execute(batchStatementBuilder.build());
