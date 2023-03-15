@@ -32,6 +32,9 @@ public class NoRAMPLauncher extends AbstractJavaSamplerClient {
     @Override
     public void setupTest(JavaSamplerContext context) {
         dbStrategy = new CassandraImpl();
+//        dbStrategy.nonTxn("CREATE KEYSPACE IF NOT EXISTS store_no_ramp WITH replication = {'class':'SimpleStrategy', 'replication_factor' : 1};");
+//        dbStrategy.nonTxn("DROP TABLE IF EXISTS store_no_ramp.books_by_title;");
+//        dbStrategy.nonTxn("CREATE TABLE store_no_ramp.books_by_title(title text, author_id uuid, pages int, year int, PRIMARY KEY (title));");
     }
 
     @Override

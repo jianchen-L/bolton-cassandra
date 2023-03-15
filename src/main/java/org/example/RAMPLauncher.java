@@ -39,7 +39,6 @@ public class RAMPLauncher extends AbstractJavaSamplerClient {
 
 //        dbStrategy.nonTxn("CREATE KEYSPACE IF NOT EXISTS store WITH replication = {'class':'SimpleStrategy', 'replication_factor' : 1};");
 //        dbStrategy.nonTxn("DROP TABLE IF EXISTS store.books_by_title;");
-//        dbStrategy.nonTxn("DROP TABLE IF EXISTS store.books_by_author;");
 //        dbStrategy.nonTxn("CREATE TABLE store.books_by_title(title text, author_id uuid, pages int, year int, PRIMARY KEY (title));");
     }
 
@@ -127,7 +126,7 @@ public class RAMPLauncher extends AbstractJavaSamplerClient {
                     dbStrategy.txnWrite(txnCqls);
                 } else {
                     List<CqlInfo> txnCqls = new LinkedList<>();
-                    int num = update.nextInt(i - 164, i);
+                    int num = i - 33 * update.nextInt(1, i / 33);
                     txnCqls.add(CqlParser.parse(String.format("UPDATE store.books_by_title SET pages=%d, year=%d WHERE title='%d Book1 Batch %d';", pages.nextInt(100, 999), year.nextInt(1900, 2023), threadNum, num)));
                     txnCqls.add(CqlParser.parse(String.format("UPDATE store.books_by_title SET pages=%d, year=%d WHERE title='%d Book2 Batch %d';", pages.nextInt(100, 999), year.nextInt(1900, 2023), threadNum, num)));
                     txnCqls.add(CqlParser.parse(String.format("UPDATE store.books_by_title SET pages=%d, year=%d WHERE title='%d Book3 Batch %d';", pages.nextInt(100, 999), year.nextInt(1900, 2023), threadNum, num)));
@@ -139,6 +138,8 @@ public class RAMPLauncher extends AbstractJavaSamplerClient {
                 if (i % 99 == 0) {
                     List<CqlInfo> txnCqls = new LinkedList<>();
                     txnCqls.add(CqlParser.parse(String.format("SELECT title, author_id FROM store.books_by_title WHERE title = '%d Book1 Batch %d';", threadNum, i / 3)));
+                    txnCqls.add(CqlParser.parse(String.format("SELECT title, author_id FROM store.books_by_title WHERE title = '%d Book2 Batch %d';", threadNum, i / 3)));
+                    txnCqls.add(CqlParser.parse(String.format("SELECT title, author_id FROM store.books_by_title WHERE title = '%d Book3 Batch %d';", threadNum, i / 3)));
                     dbStrategy.txnRead(txnCqls);
                 }
             }

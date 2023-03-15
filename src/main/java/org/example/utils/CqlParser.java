@@ -49,7 +49,7 @@ public class CqlParser {
                 StringBuilder sb = new StringBuilder();
                 for (CqlIdentifier column : tableMetadata.getColumns().keySet()) {
                     String columnCast = column.asInternal();
-                    if (!("key".equals(columnCast) || "lock_ts".equals(columnCast) || "tid".equals(columnCast))) {
+                    if (!("key".equals(columnCast) || "tid".equals(columnCast))) {
                         sb.append(columnCast);
                     }
                 }
