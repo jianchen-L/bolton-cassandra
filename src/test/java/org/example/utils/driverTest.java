@@ -1,9 +1,11 @@
 package org.example.utils;
 
 import com.datastax.oss.driver.api.core.CqlSession;
-import com.datastax.oss.driver.api.core.cql.PreparedStatement;
+import com.datastax.oss.driver.api.core.cql.*;
 import com.datastax.oss.driver.api.querybuilder.QueryBuilder;
 import com.datastax.oss.driver.api.querybuilder.insert.Insert;
+import com.datastax.oss.driver.api.querybuilder.select.Select;
+import com.datastax.oss.driver.api.querybuilder.select.Selector;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -26,6 +28,11 @@ public class driverTest {
 
     @Test
     public void test() {
-
+        BatchStatementBuilder batchStatementBuilder = BatchStatement.builder(DefaultBatchType.LOGGED);
+        batchStatementBuilder.addStatement(SimpleStatement.newInstance("INSERT INTO correct.test_a (id, update_text) VALUES (0,'none');"));
+        batchStatementBuilder.addStatement(SimpleStatement.newInstance("INSERT INTO correct.test_b (id, update_text) VALUES (0,'none');"));
+        session.execute(batchStatementBuilder.build());
+        Select select = QueryBuilder.selectFrom("correct", "test_a").all().selector(Selector.writeTime("update_text")).as("time");
+        System.out.println(session.execute(select.build()).one().getFormattedContents());
     }
 }

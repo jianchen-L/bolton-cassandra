@@ -187,7 +187,7 @@ $(document).ready(function() {
     }, [[0, 0]], 3);
 
     // Create statistics table
-    createTable($("#statisticsTable"), {"supportsControllersDiscrimination": true, "overall": {"data": ["Total", 2000, 0, 0.0, 831.9034999999988, 606, 1912, 847.0, 898.0, 958.9499999999998, 980.0, 10.811570542794898, 0.0, 0.0], "isController": false}, "titles": ["Label", "#Samples", "FAIL", "Error %", "Average", "Min", "Max", "Median", "90th pct", "95th pct", "99th pct", "Transactions/s", "Received", "Sent"], "items": [{"data": ["RAMP", 1000, 0, 0.0, 866.3899999999992, 665, 1912, 854.0, 958.9, 968.0, 988.97, 5.42673099151802, 0.0, 0.0], "isController": false}, {"data": ["原生", 1000, 0, 0.0, 797.4170000000007, 606, 922, 774.0, 872.0, 880.0, 898.0, 5.441673423411167, 0.0, 0.0], "isController": false}]}, function(index, item){
+    createTable($("#statisticsTable"), {"supportsControllersDiscrimination": true, "overall": {"data": ["Total", 2000, 0, 0.0, 804.4419999999992, 574, 1917, 794.0, 901.9000000000001, 929.9499999999998, 1006.99, 11.292034598794011, 0.0, 0.0], "isController": false}, "titles": ["Label", "#Samples", "FAIL", "Error %", "Average", "Min", "Max", "Median", "90th pct", "95th pct", "99th pct", "Transactions/s", "Received", "Sent"], "items": [{"data": ["RAMP", 1000, 0, 0.0, 830.2089999999998, 595, 1917, 812.0, 916.9, 955.0, 1046.0, 5.667327854916406, 0.0, 0.0], "isController": false}, {"data": ["原生", 1000, 0, 0.0, 778.6749999999994, 574, 1199, 762.0, 865.0, 899.8999999999999, 945.96, 5.6824962069337825, 0.0, 0.0], "isController": false}]}, function(index, item){
         switch(index){
             // Errors pct
             case 3:

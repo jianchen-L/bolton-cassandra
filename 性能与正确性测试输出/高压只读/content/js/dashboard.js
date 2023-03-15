@@ -173,7 +173,7 @@ $(document).ready(function() {
     });
 
     // Creates APDEX table
-    createTable($("#apdexTable"), {"supportsControllersDiscrimination": true, "overall": {"data": [0.13733333333333334, 500, 1500, "Total"], "isController": false}, "titles": ["Apdex", "T (Toleration threshold)", "F (Frustration threshold)", "Label"], "items": [{"data": [0.06833333333333333, 500, 1500, "RAMP"], "isController": false}, {"data": [0.20633333333333334, 500, 1500, "原生"], "isController": false}]}, function(index, item){
+    createTable($("#apdexTable"), {"supportsControllersDiscrimination": true, "overall": {"data": [0.18016666666666667, 500, 1500, "Total"], "isController": false}, "titles": ["Apdex", "T (Toleration threshold)", "F (Frustration threshold)", "Label"], "items": [{"data": [0.0485, 500, 1500, "RAMP"], "isController": false}, {"data": [0.31183333333333335, 500, 1500, "原生"], "isController": false}]}, function(index, item){
         switch(index){
             case 0:
                 item = item.toFixed(3);
@@ -187,7 +187,7 @@ $(document).ready(function() {
     }, [[0, 0]], 3);
 
     // Create statistics table
-    createTable($("#statisticsTable"), {"supportsControllersDiscrimination": true, "overall": {"data": ["Total", 6000, 0, 0.0, 1551.9246666666654, 722, 2042, 1603.0, 1756.0, 1787.0, 1826.0, 17.095721795620648, 0.0, 0.0], "isController": false}, "titles": ["Label", "#Samples", "FAIL", "Error %", "Average", "Min", "Max", "Median", "90th pct", "95th pct", "99th pct", "Transactions/s", "Received", "Sent"], "items": [{"data": ["RAMP", 3000, 0, 0.0, 1598.512666666668, 774, 2042, 1619.0, 1786.0, 1804.0, 1841.9899999999998, 8.56641110206879, 0.0, 0.0], "isController": false}, {"data": ["原生", 3000, 0, 0.0, 1505.3366666666686, 722, 1900, 1575.0, 1657.0, 1675.9499999999998, 1721.9799999999996, 8.573976267233693, 0.0, 0.0], "isController": false}]}, function(index, item){
+    createTable($("#statisticsTable"), {"supportsControllersDiscrimination": true, "overall": {"data": ["Total", 6000, 0, 0.0, 1595.8333333333273, 635, 2130, 1575.0, 1949.0, 1975.0, 2021.9899999999998, 16.773082557112346, 0.0, 0.0], "isController": false}, "titles": ["Label", "#Samples", "FAIL", "Error %", "Average", "Min", "Max", "Median", "90th pct", "95th pct", "99th pct", "Transactions/s", "Received", "Sent"], "items": [{"data": ["RAMP", 3000, 0, 0.0, 1773.7683333333343, 840, 2130, 1791.0, 1975.0, 1995.0, 2037.0, 8.403055350925596, 0.0, 0.0], "isController": false}, {"data": ["原生", 3000, 0, 0.0, 1417.8983333333315, 635, 1694, 1433.0, 1580.0, 1599.0, 1631.0, 8.414533582403527, 0.0, 0.0], "isController": false}]}, function(index, item){
         switch(index){
             // Errors pct
             case 3:
